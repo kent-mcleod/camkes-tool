@@ -832,3 +832,63 @@ def parse_dtb_node_interrupts(node, max_num_interrupts, arch):
         })
 
     return irq_set
+
+
+def generate_dts_frament(mem_spec, reserved_regions):
+    ''' Generate a dts fragment from a memory spec'''
+
+    def print_node(s, node_name, regs, addr_cells, size_cells):
+        # pdb.set_trace()
+        if not node_name:
+            s += "\nreg = <"
+            for segment in regs:
+                if addr_cells == 2:
+                    s+= " 0x0"
+                s+= " 0x%x" %(segment["start"])
+                if size_cells == 2:
+                    s+= " 0x0"
+                s+= " 0x%x" %(segment["size"])
+            s += " >;"
+
+
+            return s
+        if node_name[0] == '':
+            s += "\n/ {"
+            s = print_node(s, node_name[1:], regs, addr_cells, size_cells)
+            s += "\n};"
+            return s
+        else :
+            s += "\n %s {" % (node_name[0])
+            s = print_node(s, node_name[1:], regs, addr_cells, size_cells)
+            s += "\n};"
+            return s
+
+
+
+
+    s = ''
+    for mem_node in mem_spec:
+        s = print_node(s, mem_node["node"].split('/'), mem_node["reg"], mem_node["#address-cells"], mem_node["#size-cells"])
+
+    if len(reserved_regions):
+        s_in = ''
+        for region in reserved_regions:
+            s_in += " %s %s" %  (hex(region['start']), hex(region['size']))
+        res = '''
+        / {
+        reserved-memory {
+            #address-cells = < 0x01 >;
+            #size-cells = < 0x01 >;
+            ranges;
+
+            other-kernel-mem@40000000 {
+                reg = <%s>;
+                no-map;
+            };
+        };
+        };
+        ''' % (s_in)
+
+        s += res
+
+    return s

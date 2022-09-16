@@ -113,6 +113,21 @@ seL4_CPtr camkes_get_smc_cap(seL4_Word smc_call){
     /*- do my_cnode.__setattr__('size_bits', size) -*/
 /*- endif -*/
 
+/*- set sgi_caps = [] -*/
+/*- for sgi in configuration[me.address_space].get('sgi_caps', []) -*/
+    /*- set irqs = sgi["irqs"] -*/
+    /*- set targets = sgi["targets"] -*/
+    /*- set sgi = alloc('sgi_%d' % (loop.index0), seL4_ARM_SGI_Signal, irq=irq, targets=targets) -*/
+    /*- do sgi_caps.append((sgi, irqs, targets)) -*/
+/*- endfor -*/
+
+static seL4_CPtr sgi_caps[] = {
+    /*- for (cap, irqs, targets) in sgi_caps -*/
+        /*? cap ?*/,
+    /*- endfor -*/
+};
+
+
 /* DTB passthrough */
 
 

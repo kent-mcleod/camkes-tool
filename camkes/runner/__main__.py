@@ -23,7 +23,7 @@ import argparse
 from capdl import ObjectType, ObjectAllocator, CSpaceAllocator, \
     lookup_architecture, AddressSpaceAllocator
 from camkes.runner.Renderer import Renderer
-from capdl.Allocator import RenderState
+from capdl.Allocator import RenderState, AllocatorState
 from camkes.internal.exception import CAmkESError
 import camkes.internal.log as log
 from camkes.templates import TemplateError
@@ -246,9 +246,9 @@ def main(argv, out, err):
     elif options.save_object_state is None:
         render_state = None
     else:
-        obj_space = ObjectAllocator()
-        obj_space.spec.arch = options.architecture
-        render_state = RenderState(obj_space=obj_space)
+        render_state = RenderState()
+
+
 
         for i in assembly.composition.instances:
             # Don't generate any code for hardware components.
@@ -256,17 +256,35 @@ def main(argv, out, err):
                 continue
 
             key = i.address_space
+            node_key = assembly.configuration[key]['node']
+            if node_key not in render_state.nodes:
+                obj_space = ObjectAllocator()
+                obj_space.spec.arch = options.architecture
+                allocator_state = AllocatorState(obj_space)
+                allocator_state.sgi_count = 1
+                render_state.nodes[node_key] = allocator_state
 
-            if key not in render_state.cspaces:
-                cnode = render_state.obj_space.alloc(ObjectType.seL4_CapTableObject,
+            render_state.label_node_map[key] = node_key
+            allocator_state = render_state.nodes[node_key]
+
+            if key not in allocator_state.cspaces:
+
+
+                cnode = allocator_state.obj_space.alloc(ObjectType.seL4_CapTableObject,
                                                      name="%s_cnode" % key, label=key)
-                render_state.cspaces[key] = CSpaceAllocator(cnode)
-                pd = obj_space.alloc(lookup_architecture(options.architecture).vspace().object, name="%s_group_bin_pd" % key,
+                allocator_state.cspaces[key] = CSpaceAllocator(cnode)
+                pd = allocator_state.obj_space.alloc(lookup_architecture(options.architecture).vspace().object, name="%s_group_bin_pd" % key,
                                      label=key)
                 addr_space = AddressSpaceAllocator(
                     re.sub(r'[^A-Za-z0-9]', '_', "%s_group_bin" % key), pd)
-                render_state.pds[key] = pd
-                render_state.addr_spaces[key] = addr_space
+                allocator_state.pds[key] = pd
+                allocator_state.addr_spaces[key] = addr_space
+
+
+        for (node_name, node) in render_state.nodes.items():
+            render_state.pool_reg = assembly.configuration[node_name].get('shared_pool', [])
+
+        render_state.curser = render_state.pool_reg[0]["start"]
 
     for (item, outfile, template) in zip(options.item, options.outfile, options.template):
         key = item.split("/")
@@ -289,8 +307,11 @@ def main(argv, out, err):
             die("item: \"%s\" does not have the correct formatting to render." % item)
 
         try:
-            g = r.render(i, assembly, template, render_state, obj_key,
-                         outfile_name=outfile.name, options=options, my_pd=render_state.pds[obj_key] if obj_key else None)
+
+            node_key = render_state.label_node_map[obj_key] if obj_key else None
+            pd = render_state.nodes[node_key].pds[obj_key] if node_key else None
+            g = r.render(i, assembly, template, render_state if obj_key else None, obj_key,
+                         outfile_name=outfile.name, options=options, my_pd=pd)
             outfile.write(g)
             outfile.close()
         except TemplateError as inst:
