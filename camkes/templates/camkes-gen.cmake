@@ -29,6 +29,16 @@ set(CAMKES_C_FLAGS "-Wno-main")
   #*/
 /*- set groups = set(map(lambda('x: x.address_space'), filter(lambda('x: not x.type.hardware'), instances))) -*/
 
+/*- set nodemap = dict() -*/
+/*- for i in instances if i.type.hardware -*/
+    /*- set node_id = configuration[i.name].get("node_id", None) -*/
+    /*- if node_id is not none -*/
+        /*- do nodemap.__setitem__(node_id, i) -*/
+    /*- endif -*/
+
+/*- endfor -*/
+
+
 # We build up a list of all the generated items that we want to construct a single
 # camkes invocation
 set(item_list "")
@@ -555,8 +565,12 @@ else()
     set(CAPDL_LINKER_ALLOC_OPT "--dynamic-alloc")
     set(CAPDL_LINKER_UNTYPED_OPT "")
 endif()
+/*- for node_id, node in nodemap.items() -*/
+list(APPEND outfile_args --outfile-key /*? node.name ?*/ --outfile ${CAMKES_CDL_TARGET}./*? node_id ?*/)
+list(APPEND outfiles ${CAMKES_CDL_TARGET}./*? node_id ?*/)
+/*- endfor -*/
 add_custom_command(
-    OUTPUT ${CAMKES_CDL_TARGET} ${CMAKE_CURRENT_BINARY_DIR}/object-final.pickle
+    OUTPUT ${outfiles} ${CMAKE_CURRENT_BINARY_DIR}/object-final.pickle
     COMMAND
         ${CAPDL_LINKER}
             "--object-sizes=$<TARGET_PROPERTY:object_sizes,FILE_PATH>"
@@ -568,7 +582,7 @@ add_custom_command(
             ${CAPDL_LINKER_UNTYPED_OPT}
             "$<$<BOOL:${capdl_elfs}>:--elffile$<SEMICOLON>>$<JOIN:${capdl_elfs},$<SEMICOLON>--elffile$<SEMICOLON>>"
             "$<$<BOOL:${key_names}>:--key$<SEMICOLON>>$<JOIN:${key_names},$<SEMICOLON>--key$<SEMICOLON>>"
-            --outfile ${CAMKES_CDL_TARGET}
+            ${outfile_args}
     DEPENDS
         ${CMAKE_CURRENT_BINARY_DIR}/ast.pickle
         # This pulls in miscellaneous dependencies
@@ -586,28 +600,104 @@ add_custom_command(
     COMMAND_EXPAND_LISTS
     COMMENT "Generating final \"${CAMKES_CDL_TARGET}\" file"
 )
-add_custom_target(camkes_capdl_target DEPENDS "${CAMKES_CDL_TARGET}" "${CMAKE_CURRENT_BINARY_DIR}/object-final.pickle")
+add_custom_target(camkes_capdl_target DEPENDS "${outfiles}" "${CMAKE_CURRENT_BINARY_DIR}/object-final.pickle")
 add_dependencies(camkes_capdl_target object_sizes ${capdl_elf_targets})
 
+include(rootserver)
+include(ExternalProject)
+include(external-project-helpers)
+
+/*- for node_id, node in nodemap.items() -*/
+
+
 # Invoke the parse-capDL tool to turn the CDL spec into a C spec
-CapDLToolCFileGen(capdl_c_spec_target capdl_spec.c ${CAmkESCapDLStaticAlloc} "$<TARGET_PROPERTY:object_sizes,FILE_PATH>" "${CAMKES_CDL_TARGET}" "${CAPDL_TOOL_BINARY}"
+CapDLToolCFileGen(capdl_c_spec_target./*? node_id ?*/ capdl_spec./*? node_id ?*/.c ${CAmkESCapDLStaticAlloc} "$<TARGET_PROPERTY:object_sizes,FILE_PATH>" "${CAMKES_CDL_TARGET}./*? node_id ?*/" "${CAPDL_TOOL_BINARY}"
     DEPENDS camkes_capdl_target install_capdl_tool "${CAPDL_TOOL_BINARY}")
 
 # Ask the CapDL tool to generate an image with our given copied/mangled instances
 BuildCapDLApplication(
-    C_SPEC "capdl_spec.c"
-    /*- for g in groups -*/
+    C_SPEC "capdl_spec./*? node_id ?*/.c"
+    /*- for g in groups if configuration[g].get("node", None) == node.name  -*/
         ELF "${CMAKE_CURRENT_BINARY_DIR}//*? "%s_group_bin" % g ?*/"
     /*- endfor -*/
     DEPENDS
         # Dependency on the C_SPEC and ELFs are added automatically, we just have to add the target
         # dependencies
-        capdl_c_spec_target
+        capdl_c_spec_target./*? node_id ?*/
         ${capdl_elf_targets}
-    OUTPUT "capdl-loader"
+    OUTPUT "capdl-loader./*? node_id ?*/"
 )
-include(rootserver)
-DeclareRootserver("capdl-loader")
+
+    SetSeL4Start(capdl-loader./*? node_id ?*/)
+    set_property(
+        TARGET capdl-loader./*? node_id ?*/
+        APPEND_STRING
+        PROPERTY LINK_FLAGS " -Wl,-T ${TLS_ROOTSERVER} "
+    )
+
+
+    /*- set memory_ranges = configuration[node.name].get("memory", []) -*/
+    /*- set dts_string = macros.generate_dts_frament(memory_ranges) -*/
+file(WRITE "${CMAKE_CURRENT_LIST_DIR}//*? node.name ?*/.dts" 
+    [==[
+/*? dts_string ?*/
+
+    ]==]
+)
+    set(target_name "seL4-/*? node_id + 1 ?*/")
+    set(rootserver_target_name "rootserver-/*? node_id + 1 ?*/")
+    ExternalProject_Add(${target_name}
+        SOURCE_DIR ${KERNEL_PATH}/
+        BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/${target_name}
+        BUILD_ALWAYS ON
+        BUILD_COMMAND cmake . && ninja kernel.elf
+        INSTALL_COMMAND true
+        USES_TERMINAL_CONFIGURE ON
+        USES_TERMINAL_BUILD ON
+        CMAKE_ARGS
+        "-DKernelIsMCS=${KernelIsMCS}"
+        "-DARM_HYP=${ARM_HYP}"
+        "-DPLATFORM=${PLATFORM}"
+        "-DRELEASE=${RELEASE}"
+        "-DSIMULATION=${SIMULATION}"
+        "-DKernelSel4Arch=${KernelSel4Arch}"
+        "-DKernelCustomDTSOverlay=${CMAKE_CURRENT_LIST_DIR}//*? node.name ?*/.dts"
+        "-C" "${SEL4_CONFIG_FILE}"
+    )
+
+    DeclareExternalProjObjectFiles(${target_name} "${CMAKE_CURRENT_BINARY_DIR}/${target_name}/" FILES "kernel.dtb" "kernel.elf")
+    add_custom_target(${target_name}_external DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/${target_name}/kernel.elf)
+
+    add_library(${target_name}-kernel STATIC IMPORTED GLOBAL)
+    add_dependencies(${target_name}-kernel ${target_name} ${target_name}_external)
+    set_property(
+    TARGET ${target_name}-kernel
+    PROPERTY IMPORTED_LOCATION "${CMAKE_CURRENT_BINARY_DIR}/${target_name}/kernel.elf"
+    )
+    # add_custom_target(seL4-${overlay}-= DEPENDS seL4-${overlay}-kernel)
+
+    add_library(${target_name}-dtb STATIC IMPORTED GLOBAL)
+    add_dependencies(${target_name}-dtb ${target_name})
+    set_property(
+    TARGET ${target_name}-dtb
+    PROPERTY IMPORTED_LOCATION "${CMAKE_CURRENT_BINARY_DIR}/${target_name}/kernel.dtb"
+    )
+    list(APPEND kernel_targets ${target_name})
+
+    add_library(${rootserver_target_name} STATIC IMPORTED GLOBAL)
+    add_dependencies(${rootserver_target_name} ${target_name})
+    set_property(
+    TARGET ${rootserver_target_name}
+    PROPERTY IMPORTED_LOCATION "${CMAKE_CURRENT_BINARY_DIR}/capdl-loader./*? node_id ?*/"
+    )
+
+
+/*- endfor -*/
+
+# add_dependencies(capdl-loader ${kernel_targets})
+DeclareRootserver("foo")
+
+
 
 # Generate Isabelle theory scripts if needed
 if (CAmkESCapDLVerification)

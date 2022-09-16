@@ -52,9 +52,14 @@ def new_context(entity, assembly, render_state, state_key, outfile_name,
                 **kwargs):
     '''Create a new default context for rendering.'''
 
-    obj_space = render_state.obj_space if render_state else None
-    cap_space = render_state.cspaces[state_key] if state_key and render_state else None
-    addr_space = render_state.addr_spaces[state_key] if state_key and render_state else None
+    # Assert that render_state and state_key are both set or both None
+    print(render_state, state_key)
+    assert(not(state_key) or render_state)
+    assert(not(render_state) or state_key)
+    node_key = render_state.label_node_map[state_key] if state_key else None
+    obj_space = render_state.nodes[node_key].obj_space if render_state else None
+    cap_space = render_state.nodes[node_key].cspaces[state_key] if state_key and render_state else None
+    addr_space = render_state.nodes[node_key].addr_spaces[state_key] if state_key and render_state else None
 
     return dict(list(__builtins__.items()) + list(ObjectType.__members__.items()) + list(ObjectRights.__members__.items()) + list(ARMIRQMode.__members__.items()) + list({
         # Kernel object allocator
@@ -182,6 +187,7 @@ def new_context(entity, assembly, render_state, state_key, outfile_name,
                 # context to allow unanticipated template extensions.
                 'obj_space': obj_space,
                 'cap_space': cap_space,
+                'render_state': render_state,
 
                 # Debugging functions
                 'breakpoint': _breakpoint,
