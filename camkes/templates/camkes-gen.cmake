@@ -637,7 +637,8 @@ BuildCapDLApplication(
 
 
     /*- set memory_ranges = configuration[node.name].get("memory", []) -*/
-    /*- set dts_string = macros.generate_dts_frament(memory_ranges) -*/
+    /*- set reserved_ranges = configuration[node.name].get("reserved", []) -*/
+    /*- set dts_string = macros.generate_dts_frament(memory_ranges, reserved_ranges) -*/
 file(WRITE "${CMAKE_CURRENT_LIST_DIR}//*? node.name ?*/.dts" 
     [==[
 /*? dts_string ?*/

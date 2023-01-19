@@ -30,7 +30,7 @@
 /*- set sgi = 32 -*/
 /*- if global_name not in render_state.global_obj_space -*/
     /*- set sgi = render_state.nodes[node_name].sgi_count -*/
-    /*- do render_state.nodes[node_name].__setattr__('sgi', sgi + 1) -*/
+    /*- do render_state.nodes[node_name].__setattr__('sgi_count', sgi + 1) -*/
     /*- do render_state.global_obj_space.__setitem__(global_name, sgi) -*/
 /*- else -*/
     /*- set sgi = render_state.global_obj_space[global_name] -*/
