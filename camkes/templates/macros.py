@@ -834,7 +834,7 @@ def parse_dtb_node_interrupts(node, max_num_interrupts, arch):
     return irq_set
 
 
-def generate_dts_frament(mem_spec, reserved_regions):
+def generate_dts_frament(mem_spec, reserved_regions, spi_irqs=[]):
     ''' Generate a dts fragment from a memory spec'''
 
     def print_node(s, node_name, regs, addr_cells, size_cells):
@@ -888,6 +888,18 @@ def generate_dts_frament(mem_spec, reserved_regions):
         };
         };
         ''' % (s_in)
+
+        s += res
+
+    if len(spi_irqs):
+
+        res = '''
+        / {
+          chosen {
+            seL4,spi-irqs = <%s>;
+          };
+        };
+        ''' % (" ".join(map(hex, spi_irqs)))
 
         s += res
 
